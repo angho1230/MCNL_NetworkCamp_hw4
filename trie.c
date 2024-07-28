@@ -139,7 +139,7 @@ void search(trie * t, const char * s){
 
 list * search_node(trie_node * root, const char * s){
     if(s[0] == '\0'){
-        return root->children[s[0]]->indexes;
+        return root->indexes;
     }
     if(root->children[s[0]] != 0x0){
         return root->children[s[0]]->search_node(root->children[s[0]], s+1);
@@ -159,7 +159,11 @@ trie * make_trie(const char * s){
     trie *t = (trie *)malloc(sizeof(trie));
     t->root = make_node();
     t->search = search;
-    t->root->insert(t->root, s, 0);
+    int len = 0;
+    while(*(s+len) != '\0'){
+        t->root->insert(t->root, s+len, len);
+        len++;
+    }
     return t;
 }
 
@@ -210,7 +214,8 @@ int main()
     //string txt = "CAFE Pohang Handong";
     //SuffixTrie S(txt);
     char txt[] = "CAFE Pohang Handong";
+    char ftxt[] = "Pohang";
     trie * t = make_trie(txt);
-    t->search(t, txt);
+    t->search(t, ftxt);
     return 0;
 }
