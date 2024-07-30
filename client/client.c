@@ -4,14 +4,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
+#include <termios.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <sys/socket.h>
-#include "file.h"
+#include <ncurses.h>
 #include "socket.h"
-#include "shell.h"
+#include "screen.h"
 
+#define BUF_SIZE 1024
 
 int main(int argc, char * argv[]){
     if(argc != 3){
@@ -23,80 +25,49 @@ int main(int argc, char * argv[]){
     if(connect(sock, (struct sockaddr*)&serv_adr, sizeof(serv_adr)) == -1){
         error_handling("connect() error!");
     }
-    comm_st cst;
+    static struct termios t, oldt;
+    tcgetattr( STDIN_FILENO, &t);
+    oldt = t;
+    t.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr( STDIN_FILENO, TCSANOW, &t);
+
+    char buf[BUF_SIZE];
+    int len = 0;
+
+    initscr();
     while(1){
-        size_t bufsize = 1024;
-        char * buf=(char*)malloc(bufsize);
-        res_st rst;
-        getline(&buf, &bufsize, stdin);
-        if(strlen(buf) == 0){
-            continue;
+        int c = getchar();
+        switch(c){
+            case '\n':
+                continue;
+            case 127:
+            case 8:
+                if(len > 0)len--;
+                break;
+            default:
+                buf[len++] = c;
+                break;
         }
-        fflush(stdin);
-        buf[strlen(buf)-1] = '\0';
-        printf("%s%s%s", buf, buf, buf);
-        sleep(1);
-        char * args = strtok(buf, " ");
-        args = strtok(NULL, " ");
-        if(args == 0x0){
-            if(strcmp(buf, "ls") == 0){
-                printf("ls!!\n");
-                fflush(stdout);
-                cst.c = LS;
-                cst.arg[0] = '\0';
-                write(sock, &cst, sizeof(cst));
-                read_full(sock, &rst, sizeof(rst));
-                file* files = (file *)malloc(rst.size);
-                read_full(sock, files, rst.size);
-                print_files(files, rst.size/sizeof(file));  
-            }
-            else if(strcmp(buf, "exit") == 0){
-                cst.c = EXIT;
-                cst.arg[0] = '\0';
-                write(sock, &cst, sizeof(cst));
-            }else if(strcmp(buf, "cd") == 0 ||
-                        strcmp(buf, "up") == 0 ||
-                        strcmp(buf, "dl") == 0){
-                printf("you need argument for %s\n", buf);
-            }
-            else{
-                printf("no command %s\n", buf);
-                printf("%d\n", strcmp(buf, "ls"));
-            }
-            free(buf);
-            continue;
+        buf[len] = '\0';
+        //printf("> %s\n", buf);
+        if(len == 0){print_screen(buf, 0, 0); continue;}
+        write(sock, buf, len);
+        int search_count;
+        read(sock, &search_count, sizeof(int));
+        char ** result = (char**)malloc(search_count*sizeof(char*));
+        for(int i = 0; i < search_count; i++){
+            int strl;
+            read(sock, &strl, sizeof(int));
+            result[i] = (char*)malloc(sizeof(char)*strl+1);
+            read_full(sock, result[i], strl);
+            result[i][strl] = '\0';
         }
-        if(strcmp(buf, "up") == 0){
-            cst.c = UP;
-            strcpy(cst.arg, args); 
-            write(sock, &cst, sizeof(cst));
-            file finfo;
-            get_file(".", &finfo, args);
-            write(sock, &finfo, sizeof(finfo));
-            write_from_file(sock, ".", finfo);
-            read_full(sock, &rst, sizeof(rst));
+        print_screen(buf, result, search_count);
+        for(int i = 0; i < search_count; i++){
+            free(result[i]);
         }
-        else if(strcmp(buf, "dl") == 0){
-            cst.c = DL;
-            write(sock, &cst, sizeof(cst));
-            file finfo;
-            read_full(sock, &finfo, sizeof(finfo));
-            read_to_file(sock, ".", finfo);
-            read_full(sock, &rst, sizeof(rst));
-        }
-        else if(strcmp(buf, "exit") == 0){
-            cst.c = EXIT;
-            cst.arg[0] = '\0';
-            write(sock, &cst, sizeof(cst));
-        }else if(strcmp(buf, "cd") == 0){
-            cst.c = CD;
-            strcpy(cst.arg, args);
-            write(sock, &cst, sizeof(cst));
-            read_full(sock, &rst, sizeof(rst));
-        }
-        else{
-            printf("no command %s with argument\n", buf);
-        }
-        free(buf);
+        free(result);
     }
+    tcsetattr( STDIN_FILENO, TCSANOW, &oldt);
+    endwin();
 }

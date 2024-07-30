@@ -1,22 +1,18 @@
 #include <stdio.h>
 #include <netinet/in.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <sys/socket.h>
-#include "file.h"
 #include "socket.h"
-#include "shell.h"
 #include "search.h"
 
 void * clnt_handle(void * arg);
 
-char s_path[1024];
+words_st words;
 
 int main(int argc, char * argv[]){
     int serv_sd, clnt_sd;
@@ -30,7 +26,6 @@ int main(int argc, char * argv[]){
 
 
     FILE * fp = fopen("search.data", "r");
-    words_st words;
     read_data(&words, "search.data");
 //    words_st * searchw = search_word(&words, "Pohang");
 //    sort_word(searchw);
@@ -52,5 +47,26 @@ int main(int argc, char * argv[]){
 
 void * clnt_handle(void * arg){
     int clnt_sd = *(int *)arg;
-
+    char buf[1024];
+    while(1){
+        int r = read(clnt_sd, buf, 1024);
+        if(r == 0){
+            printf("Disconnected client %d\n", clnt_sd);
+            break;
+        }
+        buf[r-1] = '\0';
+        printf("%d : %s\n", clnt_sd, buf);
+        words_st * searchw = search_word(&words, buf);
+        sort_word(searchw);
+        char ** strs = trie_to_str(searchw);
+        int len = searchw->size >= 10 ? 10 : searchw->size; 
+        write(clnt_sd, &len, sizeof(int));
+        for(int i = 0; i < len; i++){
+            int strl = strlen(strs[i]);
+            write(clnt_sd, &strl, sizeof(int));
+            write(clnt_sd, strs[i], strlen(strs[i]));
+        }
+    }
+    close(clnt_sd);
+    return 0x0;
 }
